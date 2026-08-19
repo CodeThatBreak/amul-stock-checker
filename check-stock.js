@@ -1,7 +1,6 @@
-const { chromium } = require("playwright");
+const puppeteer = require("puppeteer");
 
 // ---- CONFIG ----
-// Add/remove products here — each just needs its product page URL.
 const PRODUCTS = [
   {
     name: "Amul Whey Protein (Pack of 60 sachets)",
@@ -20,10 +19,8 @@ const NTFY_URL = `https://ntfy.sh/${NTFY_TOPIC}`;
 const DEBUG = process.env.DEBUG === "1";
 
 async function setPincode(page, pincode) {
-  const input = page.locator("#search");
-
-  const inputVisible = await input.isVisible().catch(() => false);
-  if (!inputVisible) {
+  const input = await page.$("#search");
+  if (!input) {
     if (DEBUG)
       console.log(
         "Pincode input not shown — likely already set for this session.",
@@ -31,35 +28,64 @@ async function setPincode(page, pincode) {
     return;
   }
 
-  const currentValue = await input.inputValue().catch(() => "");
+  const box = await input.boundingBox();
+  if (!box) {
+    if (DEBUG) console.log("Pincode input present but not visible.");
+    return;
+  }
+
+  const currentValue = await page
+    .$eval("#search", (el) => el.value)
+    .catch(() => "");
   if (currentValue.trim() === pincode) {
     if (DEBUG) console.log("Pincode already set to", pincode);
     return;
   }
 
-  await input.click();
-  await input.fill("");
+  await input.click({ clickCount: 3 });
+  await page.keyboard.press("Backspace");
   await input.type(pincode, { delay: 50 });
 
-  const suggestion = page
-    .locator("a.searchitem-name p.item-name", { hasText: pincode })
-    .first();
-  await suggestion.waitFor({ state: "visible", timeout: 10000 });
-  await suggestion.click();
+  // Wait for the suggestion containing the pincode to appear
+  await page.waitForFunction(
+    (pc) => {
+      const els = Array.from(
+        document.querySelectorAll("a.searchitem-name p.item-name"),
+      );
+      return els.some((el) => el.textContent.includes(pc));
+    },
+    { timeout: 10000 },
+    pincode,
+  );
 
-  await page
-    .waitForLoadState("networkidle", { timeout: 20000 })
-    .catch(() => {});
+  // Click the matching suggestion
+  await page.evaluate((pc) => {
+    const els = Array.from(
+      document.querySelectorAll("a.searchitem-name p.item-name"),
+    );
+    const match = els.find((el) => el.textContent.includes(pc));
+    if (match) {
+      (match.closest("a.searchitem-name") || match).click();
+    }
+  }, pincode);
+
+  await page.waitForNetworkIdle({ timeout: 20000 }).catch(() => {});
 }
 
-async function checkProduct(context, product) {
-  const page = await context.newPage();
+async function checkProduct(browser, product) {
+  const page = await browser.newPage();
   try {
-    await page.goto(product.url, { waitUntil: "networkidle", timeout: 30000 });
+    await page.setUserAgent(
+      "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36",
+    );
+
+    await page.goto(product.url, {
+      waitUntil: "networkidle0",
+      timeout: 30000,
+    });
 
     await setPincode(page, PINCODE);
 
-    // Wait for the button to actually be in the DOM before reading its state
     await page.waitForSelector("a.add-to-cart", { timeout: 15000 });
 
     const isDisabled = await page.evaluate(() => {
@@ -90,6 +116,31 @@ async function checkProduct(context, product) {
   }
 }
 
+async function main() {
+  const browser = await puppeteer.launch({ headless: "new" });
+
+  const results = [];
+  let hadError = false;
+
+  for (const product of PRODUCTS) {
+    try {
+      const inStock = await checkProduct(browser, product);
+      results.push({ product: product.name, inStock });
+    } catch (err) {
+      hadError = true;
+      console.error(`Error checking ${product.name}:`, err.message);
+    }
+  }
+
+  await browser.close();
+
+  if (DEBUG) {
+    console.log("Summary:", results);
+  }
+
+  if (hadError) process.exit(1);
+}
+
 async function notify(message, url) {
   if (!NTFY_TOPIC) {
     console.warn("NTFY_TOPIC not set — skipping notification");
@@ -105,37 +156,6 @@ async function notify(message, url) {
     },
     body: message,
   });
-}
-
-async function main() {
-  const browser = await chromium.launch({ headless: true });
-  const context = await browser.newContext({
-    userAgent:
-      "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36",
-  });
-
-  const results = [];
-  let hadError = false;
-
-  // Sequential, not parallel — keeps load light and avoids tripping
-  // Cloudflare rate limits from firing multiple page loads at once.
-  for (const product of PRODUCTS) {
-    try {
-      const inStock = await checkProduct(context, product);
-      results.push({ product: product.name, inStock });
-    } catch (err) {
-      hadError = true;
-      console.error(`Error checking ${product.name}:`, err.message);
-    }
-  }
-
-  await browser.close();
-
-  if (DEBUG) {
-    console.log("Summary:", results);
-  }
-
-  if (hadError) process.exit(1);
 }
 
 main();

@@ -7,6 +7,6 @@
     "check": "node check-stock.js"
   },
   "dependencies": {
-    "playwright": "^1.47.0"
+    "puppeteer": "^25.8.0"
   }
 }
