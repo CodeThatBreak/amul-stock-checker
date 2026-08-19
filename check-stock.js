@@ -117,7 +117,14 @@ async function checkProduct(browser, product) {
 }
 
 async function main() {
-  const browser = await puppeteer.launch({ headless: "new" });
+  const browser = await puppeteer.launch({
+    headless: "new",
+    args: [
+      "--no-sandbox",
+      "--disable-setuid-sandbox",
+      "--disable-dev-shm-usage", // avoids /dev/shm running out of space on small runners
+    ],
+  });
 
   const results = [];
   let hadError = false;
