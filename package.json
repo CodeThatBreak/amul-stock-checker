@@ -1,0 +1,12 @@
+{
+  "name": "amul-stock-checker",
+  "version": "1.0.0",
+  "description": "Polls Amul shop API for product stock and sends a push notification via ntfy.sh when in stock",
+  "main": "check-stock.js",
+  "scripts": {
+    "check": "node check-stock.js"
+  },
+  "dependencies": {
+    "playwright": "^1.47.0"
+  }
+}
