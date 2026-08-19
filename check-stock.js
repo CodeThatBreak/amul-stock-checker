@@ -107,7 +107,7 @@ async function checkProduct(browser, product) {
     );
 
     if (inStock) {
-      await notify(`${product.name} is OUT OF STOCK`, product.url);
+      await notify(`${product.name} is IN STOCK`, product.url);
     }
 
     return inStock;
