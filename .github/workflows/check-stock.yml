@@ -19,12 +19,30 @@ jobs:
           node-version: "20"
 
       - name: Install dependencies
-        run: npm install
+        run: npm ci
 
-      - name: Install Playwright browsers
+      - name: Cache Playwright browsers
+        uses: actions/cache@v4
+        id: playwright-cache
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-${{ hashFiles('package-lock.json') }}
+
+      - name: Install Playwright browsers (with deps)
+        if: steps.playwright-cache.outputs.cache-hit != 'true'
+        timeout-minutes: 5
+        env:
+          DEBIAN_FRONTEND: noninteractive
         run: npx playwright install --with-deps chromium
+
+      - name: Install Playwright OS deps only
+        if: steps.playwright-cache.outputs.cache-hit == 'true'
+        timeout-minutes: 3
+        env:
+          DEBIAN_FRONTEND: noninteractive
+        run: npx playwright install-deps chromium
 
       - name: Run stock check
         env:
           NTFY_TOPIC: ${{ secrets.NTFY_TOPIC }}
-        run: node check-stock.js
+        run: node check-stock.js  
